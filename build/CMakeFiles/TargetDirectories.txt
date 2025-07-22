@@ -1,0 +1,3 @@
+/Users/ethanlogie/Documents/COMP 371/Sand Dunes/build/CMakeFiles/SandDunes.dir
+/Users/ethanlogie/Documents/COMP 371/Sand Dunes/build/CMakeFiles/edit_cache.dir
+/Users/ethanlogie/Documents/COMP 371/Sand Dunes/build/CMakeFiles/rebuild_cache.dir
