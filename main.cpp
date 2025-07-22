@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 // main.cpp
 
 // Include implementation of stb_image before OpenGL headers
@@ -236,11 +236,5 @@ int main() {
     glfwTerminate();
     return 0;
 }
-=======
-#include <iostream>
 
-int main() {
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
-}
->>>>>>> def41c5eedef44d1d9c9b5b12da43760f6f99860
+
