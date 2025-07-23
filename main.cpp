@@ -191,6 +191,11 @@ int main() {
         return -1;
     }
 
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+
     // set up window
     GLFWwindow* window = glfwCreateWindow(800, 600, "Sand Dunes", nullptr, nullptr);
     if (!window) {
@@ -263,7 +268,11 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(textureShaderProgram);
-        glUniform1i(glGetUniformLocation(textureShaderProgram, "textureSampler"), 0);
+        int samplerLocation = glGetUniformLocation(textureShaderProgram, "textureSampler");
+        if (samplerLocation == -1) {
+            std::cerr << "Uniform 'textureSampler' not found in shader!\n";
+        }
+        glUniform1i(samplerLocation, 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sandTexture);
 
@@ -284,10 +293,10 @@ int main() {
 
         // space bar for starting
 
-
         // SHIFT for fast speed
         bool fastCam = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
         float currentCameraSpeed = (fastCam) ? cameraFastSpeed : cameraSpeed;
+
 
         // mouse for turning left and right
         double currentMouseX, currentMouseY;
@@ -313,15 +322,17 @@ int main() {
         glm::vec3 movementDirection = glm::vec3(cosf(theta), 0.0f, -sinf(theta));
 
         // update x and z with constant movement forward
-        cameraPosition += movementDirection * currentCameraSpeed * dt;
+        // W for moving forward
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            cameraPosition += movementDirection * cameraSpeed * dt;
+        }
+        // cameraPosition += movementDirection * currentCameraSpeed * dt;
 
         // get y from new x and z position, to stay on terrain
-        cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
+        //cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
 
         viewMatrix = lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp );
-        setViewMatrix(colorShaderProgram, viewMatrix );
-
-
+        setViewMatrix(textureShaderProgram, viewMatrix );
     }
 
     glfwDestroyWindow(window);
@@ -431,8 +442,6 @@ int createTexturedTerrainVAO() {
                 glm::vec2(u, v2)
             });
         }
-
-        return terrainVAO;
     }
 
     // create VAO
@@ -455,5 +464,7 @@ int createTexturedTerrainVAO() {
     glEnableVertexAttribArray(1);
 
     glBindVertexArray(0);
+
+    return terrainVAO;
 }
 
