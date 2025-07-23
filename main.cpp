@@ -14,10 +14,10 @@
 #include <sstream>
 
 std::string loadShader(const char*);
-int compileAndLinkShaders(const char* , const char* );
-void setProjectionMatrix(int, glm::mat4 );
-void setWorldMatrix(int, glm::mat4 );
-void setViewMatrix(int, glm::mat4 );
+int compileAndLinkShaders(const char* , const char*);
+void setProjectionMatrix(int, glm::mat4);
+void setWorldMatrix(int, glm::mat4);
+void setViewMatrix(int, glm::mat4);
 int createTexturedTerrainVAO();
 
 // Constants for control point and terrain resolution
@@ -205,6 +205,7 @@ int main() {
     }
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwMakeContextCurrent(window);
+    glewExperimental = GL_TRUE;
 
     // initialize GLEW
     if (glewInit() != GLEW_OK) {
@@ -216,7 +217,6 @@ int main() {
     GLuint sandTexture = loadTexture("sand/Ground080_1K-PNG_Color.png");
 
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
     glClearColor(0.95f, 0.87f, 0.72f, 1.0f); // background sky tint
 
     // compile and link shaders
@@ -233,7 +233,7 @@ int main() {
     int textureShaderProgram = compileAndLinkShaders(tvShaderCode, tfShaderCode);
 
     // lookAt() parameters for view transform
-    glm::vec3 cameraPosition(0.6f,1.0f,10.0f);
+    glm::vec3 cameraPosition(0.6f,1.0f,0.0f);
     glm::vec3 cameraLookAt(0.0f, 0.0f, -1.0f);
     glm::vec3 cameraUp(0.0f, 1.0f, 0.0f);
 
@@ -258,6 +258,7 @@ int main() {
 
     // create terrain VAO
     int terrainVAO = createTexturedTerrainVAO();
+    glBindVertexArray(terrainVAO);
 
     // Game loop
     while (!glfwWindowShouldClose(window)) {
@@ -277,9 +278,10 @@ int main() {
         glBindTexture(GL_TEXTURE_2D, sandTexture);
 
 
+        setWorldMatrix(textureShaderProgram, glm::mat4(1.0f));
+
         // generate and bind terrain VAO & VBO
         drawTerrain(textureShaderProgram, terrainVAO, sandTexture);
-
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -296,7 +298,6 @@ int main() {
         // SHIFT for fast speed
         bool fastCam = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
         float currentCameraSpeed = (fastCam) ? cameraFastSpeed : cameraSpeed;
-
 
         // mouse for turning left and right
         double currentMouseX, currentMouseY;
@@ -331,7 +332,7 @@ int main() {
         // get y from new x and z position, to stay on terrain
         //cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
 
-        viewMatrix = lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp );
+        viewMatrix = glm::lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp );
         setViewMatrix(textureShaderProgram, viewMatrix );
     }
 
