@@ -1,19 +1,24 @@
 
-// main.cpp
-
-// Include implementation of stb_image before OpenGL headers
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-
-// OpenGL and GLFW headers
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-
+#include <glm/glm.hpp>  // GLM is an optimized math library with syntax similar to OpenGL Shading Language
+#include <glm/gtc/matrix_transform.hpp> // include this to create transformation matrices
+#include <glm/common.hpp>
 #include <cstdlib>
-#include <ctime>
 #include <iostream>
-#include <vector>
 #include <cmath>
+#include <string>
+#include <fstream>
+#include <sstream>
+
+std::string loadShader(const char*);
+int compileAndLinkShaders(const char* , const char* );
+void setProjectionMatrix(int, glm::mat4 );
+void setWorldMatrix(int, glm::mat4 );
+void setViewMatrix(int, glm::mat4 );
+int createTexturedTerrainVAO();
 
 // Constants for control point and terrain resolution
 const int controlSize = 20;
@@ -23,13 +28,12 @@ const int fineSize = 200;
 float controlPoints[controlSize][controlSize];
 float heightMap[fineSize][fineSize];
 
-// Camera position and control variables
-float camX = 100.0f, camZ = 100.0f, camY = 0.0f;
-float camSpeed = 0.5f;
-float yaw = 0.0f; // Angle for direction camera is facing
+// creating VAO for terrain
+struct Vertex {
+    glm::vec3 position;
+    glm::vec2 texCoord;
+};
 
-// Texture ID for sand
-GLuint sandTexture;
 
 // Catmull-Rom spline interpolation to smooth terrain between points
 float catmullRom(float p0, float p1, float p2, float p3, float t) {
@@ -101,135 +105,223 @@ float getHeightAt(float x, float z) {
 }
 
 // Renders the heightMap as a textured mesh using triangle strips
-void drawTerrain() {
-    glBindTexture(GL_TEXTURE_2D, sandTexture);
+void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture) {
+    glUseProgram(shaderProgram);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindVertexArray(terrainVAO);
+
     for (int z = 0; z < fineSize - 1; ++z) {
-        glBegin(GL_TRIANGLE_STRIP);
-        for (int x = 0; x < fineSize; ++x) {
-            float u = x / (float)(fineSize - 1) * 10.0f;
-            float v1 = z / (float)(fineSize - 1) * 10.0f;
-            float v2 = (z + 1) / (float)(fineSize - 1) * 10.0f;
-
-            glTexCoord2f(u, v1);
-            glVertex3f((float)x, heightMap[z][x], (float)z);
-
-            glTexCoord2f(u, v2);
-            glVertex3f((float)x, heightMap[z + 1][x], (float)(z + 1));
-        }
-        glEnd();
+        int verticesPerStrip = fineSize * 2;
+        glDrawArrays(GL_TRIANGLE_STRIP, z * verticesPerStrip, verticesPerStrip);
     }
+
+    glBindVertexArray(0);
 }
 
-// Sets up OpenGL projection and texture options
-void initOpenGL() {
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
-    glClearColor(0.95f, 0.87f, 0.72f, 1.0f); // background sky tint
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    float fov = 60.0f;
-    float aspect = 800.0f / 600.0f;
-    float nearPlane = 0.1f;
-    float farPlane = 1000.0f;
-    float top = tan(fov * 0.5f * 3.14159f / 180.0f) * nearPlane;
-    float bottom = -top;
-    float right = top * aspect;
-    float left = -right;
-    glFrustum(left, right, bottom, top, nearPlane, farPlane);
-}
 
 // Loads an image file and sets it as an OpenGL texture
-bool loadTexture(const char* path) {
+// bool loadTexture(const char* path) {
+//     int width, height, nrChannels;
+//     unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
+//     if (!data) {
+//         std::cerr << "Error::Texture could not load texture file: " << path << std::endl;
+//         return false;
+//     }
+//
+//     glGenTextures(1, &sandTexture);
+//     glBindTexture(GL_TEXTURE_2D, sandTexture);
+//     glTexImage2D(GL_TEXTURE_2D, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, width, height, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, data);
+//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//     stbi_image_free(data);
+//     return true;
+// }
+
+
+GLuint loadTexture(const char* path) {
     int width, height, nrChannels;
     unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
-    if (data) {
-        glGenTextures(1, &sandTexture);
-        glBindTexture(GL_TEXTURE_2D, sandTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, width, height, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, data);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        stbi_image_free(data);
-        return true;
+    if (!data) {
+        std::cerr << "Error::Texture could not load texture file: " << path << std::endl;
+        return 0;
     }
-    return false;
+
+    GLuint textureId = 0;
+    glGenTextures(1, &textureId);
+    if (textureId == 0) {
+        std::cerr << "Error::Failed to generate texture ID\n";
+        stbi_image_free(data);
+        return 0;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, textureId);
+
+    GLenum format = GL_RGB;
+    if (nrChannels == 1) format = GL_RED;
+    else if (nrChannels == 3) format = GL_RGB;
+    else if (nrChannels == 4) format = GL_RGBA;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+
+    // Set texture parameters (wrap & filter)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_image_free(data);
+
+    return textureId;
 }
+
 
 // Main entry point
 int main() {
+    // generate terrain
     srand(static_cast<unsigned int>(time(0)));
     generateControlPoints();
     generateHeightMap();
 
+    // initialize GLFW
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW\n";
         return -1;
     }
 
+    // set up window
     GLFWwindow* window = glfwCreateWindow(800, 600, "Sand Dunes", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
         return -1;
     }
-
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwMakeContextCurrent(window);
 
+    // initialize GLEW
     if (glewInit() != GLEW_OK) {
         std::cerr << "Failed to initialize GLEW\n";
         return -1;
     }
 
-    if (!loadTexture("sand/Ground080_1K-PNG_Color.png")) {
-        std::cerr << "Failed to load sand texture\n";
-        return -1;
-    }
+    // load textures
+    GLuint sandTexture = loadTexture("sand/Ground080_1K-PNG_Color.png");
 
-    initOpenGL();
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_TEXTURE_2D);
+    glClearColor(0.95f, 0.87f, 0.72f, 1.0f); // background sky tint
+
+    // compile and link shaders
+    const std::string vertexShaderSource = loadShader("shaders/vertexShader.glsl");
+    const std::string fragmentShaderSource = loadShader("shaders/fragmentShader.glsl");
+    const std::string textureVertexShaderSource = loadShader("shaders/texturedVertexShader.glsl");
+    const std::string textureFragmentShaderSource = loadShader("shaders/texturedFragmentShader.glsl");
+    const char* vShaderCode = vertexShaderSource.c_str();
+    const char* fShaderCode = fragmentShaderSource.c_str();
+    const char* tvShaderCode = textureVertexShaderSource.c_str();
+    const char* tfShaderCode = textureFragmentShaderSource.c_str();
+
+    int colorShaderProgram = compileAndLinkShaders(vShaderCode, fShaderCode);
+    int textureShaderProgram = compileAndLinkShaders(tvShaderCode, tfShaderCode);
+
+    // lookAt() parameters for view transform
+    glm::vec3 cameraPosition(0.6f,1.0f,10.0f);
+    glm::vec3 cameraLookAt(0.0f, 0.0f, -1.0f);
+    glm::vec3 cameraUp(0.0f, 1.0f, 0.0f);
+
+    // camera parameters for calculation
+    float cameraSpeed = 2.0f;
+    float cameraFastSpeed = 2.0f * cameraSpeed;
+    float cameraHorizontalAngle = 90.0f;
+    float cameraVerticalAngle = 0.0f;
+    float lastFrameTime = glfwGetTime();
+    double lastMousePosX, lastMousePosY;
+    glfwGetCursorPos(window, &lastMousePosX, &lastMousePosY);
+
+    // set up default view matrix
+    glm::mat4 viewMatrix = glm::lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp);
+    setViewMatrix(colorShaderProgram, viewMatrix );
+    setViewMatrix(textureShaderProgram, viewMatrix );
+
+    // set up default projection matrix
+    glm::mat4 projectionMatrix = glm::perspective(60.0f, 800.0f/600.0f, 0.01f, 1000.0f);
+    setProjectionMatrix(colorShaderProgram, projectionMatrix);
+    setProjectionMatrix(textureShaderProgram, projectionMatrix);
+
+    // create terrain VAO
+    int terrainVAO = createTexturedTerrainVAO();
 
     // Game loop
     while (!glfwWindowShouldClose(window)) {
+
+        float dt = glfwGetTime() - lastFrameTime;
+        lastFrameTime += dt;
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // WASD for movement, QE for camera rotation
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            camX += sinf(yaw) * camSpeed;
-            camZ -= cosf(yaw) * camSpeed;
-        }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            camX -= sinf(yaw) * camSpeed;
-            camZ += cosf(yaw) * camSpeed;
-        }
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            camX -= cosf(yaw) * camSpeed;
-            camZ -= sinf(yaw) * camSpeed;
-        }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            camX += cosf(yaw) * camSpeed;
-            camZ += sinf(yaw) * camSpeed;
-        }
-        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-            yaw -= 0.03f;
-        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-            yaw += 0.03f;
+        glUseProgram(textureShaderProgram);
+        glUniform1i(glGetUniformLocation(textureShaderProgram, "textureSampler"), 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, sandTexture);
 
-        // Adjust camera height to stay on terrain
-        camY = getHeightAt(camX, camZ) + 2.0f;
 
-        // Compute look direction from yaw
-        float lookX = camX + sinf(yaw);
-        float lookZ = camZ - cosf(yaw);
+        // generate and bind terrain VAO & VBO
+        drawTerrain(textureShaderProgram, terrainVAO, sandTexture);
 
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        gluLookAt(camX, camY, camZ, lookX, camY, lookZ, 0.0f, 1.0f, 0.0f);
-
-        drawTerrain();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+
+        // -------------------- input handler
+
+        // ESC for closing window
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) { // close window with ESC
+            glfwSetWindowShouldClose(window, true);
+        }
+
+        // space bar for starting
+
+
+        // SHIFT for fast speed
+        bool fastCam = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+        float currentCameraSpeed = (fastCam) ? cameraFastSpeed : cameraSpeed;
+
+        // mouse for turning left and right
+        double currentMouseX, currentMouseY;
+        glfwGetCursorPos(window, &currentMouseX, &currentMouseY);
+        double dx = currentMouseX - lastMousePosX;
+        double dy = currentMouseY - lastMousePosY;
+        lastMousePosX = currentMouseX;
+        lastMousePosY = currentMouseY;
+
+        const float cameraAngularSpeed = 60.0f;
+        cameraHorizontalAngle -= dx * cameraAngularSpeed * dt;
+        cameraVerticalAngle   -= dy * cameraAngularSpeed * dt;
+
+        // clamp vertical angle to [-30, 85] degrees
+        cameraVerticalAngle = std::max(-30.0f, std::min(85.0f, cameraVerticalAngle));
+
+        float theta = glm::radians(cameraHorizontalAngle);
+        float phi = glm::radians(cameraVerticalAngle);
+
+        // dx and dy affect the lookAt of the camera (so user can look up and down)
+        // but only dx affects position (cannot move in y, delimited by terrain)
+        cameraLookAt = glm::vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
+        glm::vec3 movementDirection = glm::vec3(cosf(theta), 0.0f, -sinf(theta));
+
+        // update x and z with constant movement forward
+        cameraPosition += movementDirection * currentCameraSpeed * dt;
+
+        // get y from new x and z position, to stay on terrain
+        cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
+
+        viewMatrix = lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp );
+        setViewMatrix(colorShaderProgram, viewMatrix );
+
+
     }
 
     glfwDestroyWindow(window);
@@ -237,4 +329,131 @@ int main() {
     return 0;
 }
 
+
+std::string loadShader(const char* filepath) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open shader file " << filepath << "\n";
+        return "";
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+int compileAndLinkShaders(const char* vertexShaderSource, const char* fragmentShaderSource) {
+
+    // create and compile vertex shader
+    int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+    glCompileShader(vertexShader);
+
+    // check for vertex shader compilation success
+    int success;
+    char infoLog[512];
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cerr << "Error compiling vertex shader\n" << infoLog << std::endl;
+    }
+
+    // create and compile fragment shader
+    int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+    glCompileShader(fragmentShader);
+
+    // check for fragment shader compilation success
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cerr << "Error compiling fragment shader\n" << infoLog << std::endl;
+    }
+
+    // link shaders
+    int shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+
+    // check for linking errors
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cerr << "Error linking shader program\n" << infoLog << std::endl;
+    }
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    return shaderProgram;
+}
+
+void setProjectionMatrix(int shaderProgram, glm::mat4 projectionMatrix){
+    glUseProgram(shaderProgram);
+    GLuint projectionMatrixLocation = glGetUniformLocation(shaderProgram, "projectionMatrix");
+    glUniformMatrix4fv(projectionMatrixLocation, 1, GL_FALSE, &projectionMatrix[0][0]);
+}
+
+void setViewMatrix(int shaderProgram, glm::mat4 viewMatrix){
+    glUseProgram(shaderProgram);
+    GLuint viewMatrixLocation = glGetUniformLocation(shaderProgram, "viewMatrix");
+    glUniformMatrix4fv(viewMatrixLocation, 1, GL_FALSE, &viewMatrix[0][0]);
+}
+
+void setWorldMatrix(int shaderProgram, glm::mat4 worldMatrix){
+    glUseProgram(shaderProgram);
+    GLuint worldMatrixLocation = glGetUniformLocation(shaderProgram, "worldMatrix");
+    glUniformMatrix4fv(worldMatrixLocation, 1, GL_FALSE, &worldMatrix[0][0]);
+}
+
+
+int createTexturedTerrainVAO() {
+    // build terrain mesh from the height map
+
+    GLuint terrainVAO, terrainVBO;
+    std::vector<Vertex> terrainVertices;
+
+    for (int z = 0; z < fineSize - 1; ++z) {
+        for (int x = 0; x < fineSize; ++x) {
+            // two vertices per column (triangle strip row)
+            float u = x / (float)(fineSize - 1) * 10.0f;
+            float v1 = z / (float)(fineSize - 1) * 10.0f;
+            float v2 = (z + 1) / (float)(fineSize - 1) * 10.0f;
+
+            terrainVertices.push_back({
+                glm::vec3(x, heightMap[z][x], z),
+                glm::vec2(u, v1)
+            });
+
+            terrainVertices.push_back({
+                glm::vec3(x, heightMap[z + 1][x], z + 1),
+                glm::vec2(u, v2)
+            });
+        }
+
+        return terrainVAO;
+    }
+
+    // create VAO
+    glGenVertexArrays(1, &terrainVAO);
+    glBindVertexArray(terrainVAO);
+
+    // create and bind VBO
+    glGenBuffers(1, &terrainVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, terrainVBO);
+    glBufferData(GL_ARRAY_BUFFER, terrainVertices.size() * sizeof(Vertex), terrainVertices.data(), GL_STATIC_DRAW);
+
+    // position attribute for textured shader
+    // attribute 1 matches aPos in Textured Vertex Shader
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // texCoord attribute for textured shader
+    // attribute 2 matches aUV in Textured Vertex Shader
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoord));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
 
