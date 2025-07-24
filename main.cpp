@@ -83,10 +83,17 @@ void generateHeightMap() {
     }
 }
 
-// Interpolates terrain height at floating point world coordinates
-float getHeightAt(float x, float z) {
+float getHeightAt(float worldX, float worldZ) {
+
+    // convert back from world coordinates to height map coordinates
+    float offset = fineSize / 2.0f;
+
+    float x = worldX + offset;
+    float z = -worldZ + offset;
+
     int ix = static_cast<int>(x);
     int iz = static_cast<int>(z);
+
     if (ix >= 0 && ix < fineSize - 1 && iz >= 0 && iz < fineSize - 1) {
         float fx = x - ix;
         float fz = z - iz;
@@ -101,8 +108,10 @@ float getHeightAt(float x, float z) {
 
         return hx0 + fz * (hx1 - hx0);
     }
-    return 0.0f;
+
+    return 0.0f; // outside bounds
 }
+
 
 // Renders the heightMap as a textured mesh using triangle strips
 void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture) {
@@ -216,7 +225,7 @@ int main() {
     glm::vec3 cameraUp(0.0f, 1.0f, 0.0f);
 
     // camera parameters for calculation
-    float cameraSpeed = 2.0f;
+    float cameraSpeed = 4.0f;
     float cameraFastSpeed = 2.0f * cameraSpeed;
     float cameraHorizontalAngle = 90.0f;
     float cameraVerticalAngle = 0.0f;
@@ -304,10 +313,6 @@ int main() {
         cameraLookAt = glm::vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
         glm::vec3 movementDirection = glm::vec3(cosf(theta), 0.0f, -sinf(theta));
 
-        std::cout << "x: " << cameraLookAt.x;
-        std::cout << "  y: " << cameraLookAt.y;
-        std::cout << "  z: " << cameraLookAt.z << std::endl;
-
         // update x and z with constant movement forward
         // W for moving forward
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
@@ -316,7 +321,7 @@ int main() {
         // cameraPosition += movementDirection * currentCameraSpeed * dt;
 
         // get y from new x and z position, to stay on terrain
-        //cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
+        cameraPosition.y = getHeightAt(cameraPosition.x, cameraPosition.z) +2.0f;
 
         viewMatrix = glm::lookAt(cameraPosition, cameraPosition + cameraLookAt, cameraUp );
         setViewMatrix(textureShaderProgram, viewMatrix );
@@ -405,27 +410,27 @@ void setWorldMatrix(int shaderProgram, glm::mat4 worldMatrix){
     glUniformMatrix4fv(worldMatrixLocation, 1, GL_FALSE, &worldMatrix[0][0]);
 }
 
-
 int createTexturedTerrainVAO() {
-    // build terrain mesh from the height map
-
     GLuint terrainVAO, terrainVBO;
     std::vector<Vertex> terrainVertices;
 
+    // create vertex array for terrain, centered around (0,0,0)
+    float offset = fineSize / 2.0f;
+
     for (int z = 0; z < fineSize - 1; ++z) {
         for (int x = 0; x < fineSize; ++x) {
-            // two vertices per column (triangle strip row)
             float u = x / (float)(fineSize - 1) * 10.0f;
             float v1 = z / (float)(fineSize - 1) * 10.0f;
             float v2 = (z + 1) / (float)(fineSize - 1) * 10.0f;
 
+            // Flip z and offset both x and z to center terrain around origin
             terrainVertices.push_back({
-                glm::vec3(x, heightMap[z][x], z),
+                glm::vec3(x - offset, heightMap[z][x], -(z - offset)),
                 glm::vec2(u, v1)
             });
 
             terrainVertices.push_back({
-                glm::vec3(x, heightMap[z + 1][x], z + 1),
+                glm::vec3(x - offset, heightMap[z + 1][x], -(z + 1 - offset)),
                 glm::vec2(u, v2)
             });
         }
@@ -440,13 +445,10 @@ int createTexturedTerrainVAO() {
     glBindBuffer(GL_ARRAY_BUFFER, terrainVBO);
     glBufferData(GL_ARRAY_BUFFER, terrainVertices.size() * sizeof(Vertex), terrainVertices.data(), GL_STATIC_DRAW);
 
-    // position attribute for textured shader
-    // attribute 1 matches aPos in Textured Vertex Shader
+    // vertex attributes
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // texCoord attribute for textured shader
-    // attribute 2 matches aUV in Textured Vertex Shader
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoord));
     glEnableVertexAttribArray(1);
 
@@ -454,4 +456,5 @@ int createTexturedTerrainVAO() {
 
     return terrainVAO;
 }
+
 
