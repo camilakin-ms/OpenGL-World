@@ -118,28 +118,6 @@ void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture) {
     glBindVertexArray(0);
 }
 
-
-// Loads an image file and sets it as an OpenGL texture
-// bool loadTexture(const char* path) {
-//     int width, height, nrChannels;
-//     unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
-//     if (!data) {
-//         std::cerr << "Error::Texture could not load texture file: " << path << std::endl;
-//         return false;
-//     }
-//
-//     glGenTextures(1, &sandTexture);
-//     glBindTexture(GL_TEXTURE_2D, sandTexture);
-//     glTexImage2D(GL_TEXTURE_2D, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, width, height, 0, nrChannels == 4 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, data);
-//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-//     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-//     stbi_image_free(data);
-//     return true;
-// }
-
-
 GLuint loadTexture(const char* path) {
     int width, height, nrChannels;
     unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
@@ -233,7 +211,7 @@ int main() {
     int textureShaderProgram = compileAndLinkShaders(tvShaderCode, tfShaderCode);
 
     // lookAt() parameters for view transform
-    glm::vec3 cameraPosition(0.6f,1.0f,0.0f);
+    glm::vec3 cameraPosition(0.6f,15.0f,0.0f);
     glm::vec3 cameraLookAt(0.0f, 0.0f, -1.0f);
     glm::vec3 cameraUp(0.0f, 1.0f, 0.0f);
 
@@ -252,7 +230,7 @@ int main() {
     setViewMatrix(textureShaderProgram, viewMatrix );
 
     // set up default projection matrix
-    glm::mat4 projectionMatrix = glm::perspective(60.0f, 800.0f/600.0f, 0.01f, 1000.0f);
+    glm::mat4 projectionMatrix = glm::perspective(glm::radians(60.0f), 800.0f/600.0f, 0.01f, 1000.0f);
     setProjectionMatrix(colorShaderProgram, projectionMatrix);
     setProjectionMatrix(textureShaderProgram, projectionMatrix);
 
@@ -313,6 +291,10 @@ int main() {
 
         // clamp vertical angle to [-30, 85] degrees
         cameraVerticalAngle = std::max(-30.0f, std::min(85.0f, cameraVerticalAngle));
+        if (cameraHorizontalAngle > 360)
+            cameraHorizontalAngle -= 360;
+        else if (cameraHorizontalAngle < -360)
+            cameraHorizontalAngle += 360;
 
         float theta = glm::radians(cameraHorizontalAngle);
         float phi = glm::radians(cameraVerticalAngle);
@@ -322,10 +304,14 @@ int main() {
         cameraLookAt = glm::vec3(cosf(phi)*cosf(theta), sinf(phi), -cosf(phi)*sinf(theta));
         glm::vec3 movementDirection = glm::vec3(cosf(theta), 0.0f, -sinf(theta));
 
+        std::cout << "x: " << cameraLookAt.x;
+        std::cout << "  y: " << cameraLookAt.y;
+        std::cout << "  z: " << cameraLookAt.z << std::endl;
+
         // update x and z with constant movement forward
         // W for moving forward
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            cameraPosition += movementDirection * cameraSpeed * dt;
+            cameraPosition += movementDirection * currentCameraSpeed * dt;
         }
         // cameraPosition += movementDirection * currentCameraSpeed * dt;
 
