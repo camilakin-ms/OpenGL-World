@@ -19,6 +19,12 @@ void setProjectionMatrix(int, glm::mat4);
 void setWorldMatrix(int, glm::mat4);
 void setViewMatrix(int, glm::mat4);
 int createTexturedTerrainVAO();
+float catmullRom(float p0, float p1, float p2, float p3, float t);
+void generateControlPoints();
+void generateHeightMap();
+float getHeightAt(float worldX, float worldZ);
+void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture);
+GLuint loadTexture(const char* path);
 
 // Constants for control point and terrain resolution
 const int controlSize = 20;
@@ -33,137 +39,6 @@ struct Vertex {
     glm::vec3 position;
     glm::vec2 texCoord;
 };
-
-
-// Catmull-Rom spline interpolation to smooth terrain between points
-float catmullRom(float p0, float p1, float p2, float p3, float t) {
-    float t2 = t * t;
-    float t3 = t2 * t;
-    return 0.5f * (
-        2.0f * p1 +
-        (-p0 + p2) * t +
-        (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 +
-        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3
-    );
-}
-
-// Fill control points with random values for generating dune heights
-void generateControlPoints() {
-    for (int z = 0; z < controlSize; ++z) {
-        for (int x = 0; x < controlSize; ++x) {
-            controlPoints[z][x] = static_cast<float>((rand() % 10) + 3);
-        }
-    }
-}
-
-// Create fine height map from control points using Catmull-Rom splines
-void generateHeightMap() {
-    for (int z = 0; z < fineSize; ++z) {
-        float zRatio = (float)z / (fineSize - 1) * (controlSize - 3);
-        int zIndex = (int)zRatio;
-        float tz = zRatio - zIndex;
-
-        for (int x = 0; x < fineSize; ++x) {
-            float xRatio = (float)x / (fineSize - 1) * (controlSize - 3);
-            int xIndex = (int)xRatio;
-            float tx = xRatio - xIndex;
-
-            float col[4];
-            for (int i = 0; i < 4; ++i) {
-                float p0 = controlPoints[zIndex + i][xIndex];
-                float p1 = controlPoints[zIndex + i][xIndex + 1];
-                float p2 = controlPoints[zIndex + i][xIndex + 2];
-                float p3 = controlPoints[zIndex + i][xIndex + 3];
-                col[i] = catmullRom(p0, p1, p2, p3, tx);
-            }
-
-            float height = catmullRom(col[0], col[1], col[2], col[3], tz);
-            heightMap[z][x] = height;
-        }
-    }
-}
-
-float getHeightAt(float worldX, float worldZ) {
-
-    // convert back from world coordinates to height map coordinates
-    float offset = fineSize / 2.0f;
-
-    float x = worldX + offset;
-    float z = -worldZ + offset;
-
-    int ix = static_cast<int>(x);
-    int iz = static_cast<int>(z);
-
-    if (ix >= 0 && ix < fineSize - 1 && iz >= 0 && iz < fineSize - 1) {
-        float fx = x - ix;
-        float fz = z - iz;
-
-        float h00 = heightMap[iz][ix];
-        float h10 = heightMap[iz][ix + 1];
-        float h01 = heightMap[iz + 1][ix];
-        float h11 = heightMap[iz + 1][ix + 1];
-
-        float hx0 = h00 + fx * (h10 - h00);
-        float hx1 = h01 + fx * (h11 - h01);
-
-        return hx0 + fz * (hx1 - hx0);
-    }
-
-    return 0.0f; // outside bounds
-}
-
-
-// Renders the heightMap as a textured mesh using triangle strips
-void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture) {
-    glUseProgram(shaderProgram);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glBindVertexArray(terrainVAO);
-
-    for (int z = 0; z < fineSize - 1; ++z) {
-        int verticesPerStrip = fineSize * 2;
-        glDrawArrays(GL_TRIANGLE_STRIP, z * verticesPerStrip, verticesPerStrip);
-    }
-
-    glBindVertexArray(0);
-}
-
-GLuint loadTexture(const char* path) {
-    int width, height, nrChannels;
-    unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
-    if (!data) {
-        std::cerr << "Error::Texture could not load texture file: " << path << std::endl;
-        return 0;
-    }
-
-    GLuint textureId = 0;
-    glGenTextures(1, &textureId);
-    if (textureId == 0) {
-        std::cerr << "Error::Failed to generate texture ID\n";
-        stbi_image_free(data);
-        return 0;
-    }
-
-    glBindTexture(GL_TEXTURE_2D, textureId);
-
-    GLenum format = GL_RGB;
-    if (nrChannels == 1) format = GL_RED;
-    else if (nrChannels == 3) format = GL_RGB;
-    else if (nrChannels == 4) format = GL_RGBA;
-
-    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-
-    // Set texture parameters (wrap & filter)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    stbi_image_free(data);
-
-    return textureId;
-}
-
 
 // Main entry point
 int main() {
@@ -332,6 +207,134 @@ int main() {
     return 0;
 }
 
+
+// Catmull-Rom spline interpolation to smooth terrain between points
+float catmullRom(float p0, float p1, float p2, float p3, float t) {
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return 0.5f * (
+        2.0f * p1 +
+        (-p0 + p2) * t +
+        (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 +
+        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3
+    );
+}
+
+// fill control points with random values for generating dune heights
+void generateControlPoints() {
+    for (int z = 0; z < controlSize; ++z) {
+        for (int x = 0; x < controlSize; ++x) {
+            controlPoints[z][x] = static_cast<float>((rand() % 10) + 3);
+        }
+    }
+}
+
+// create fine height map from control points using Catmull-Rom splines
+void generateHeightMap() {
+    for (int z = 0; z < fineSize; ++z) {
+        float zRatio = (float)z / (fineSize - 1) * (controlSize - 3);
+        int zIndex = (int)zRatio;
+        float tz = zRatio - zIndex;
+
+        for (int x = 0; x < fineSize; ++x) {
+            float xRatio = (float)x / (fineSize - 1) * (controlSize - 3);
+            int xIndex = (int)xRatio;
+            float tx = xRatio - xIndex;
+
+            float col[4];
+            for (int i = 0; i < 4; ++i) {
+                float p0 = controlPoints[zIndex + i][xIndex];
+                float p1 = controlPoints[zIndex + i][xIndex + 1];
+                float p2 = controlPoints[zIndex + i][xIndex + 2];
+                float p3 = controlPoints[zIndex + i][xIndex + 3];
+                col[i] = catmullRom(p0, p1, p2, p3, tx);
+            }
+
+            float height = catmullRom(col[0], col[1], col[2], col[3], tz);
+            heightMap[z][x] = height;
+        }
+    }
+}
+
+float getHeightAt(float worldX, float worldZ) {
+
+    // convert back from world coordinates to height map coordinates
+    float offset = fineSize / 2.0f;
+
+    float x = worldX + offset;
+    float z = -worldZ + offset;
+
+    int ix = static_cast<int>(x);
+    int iz = static_cast<int>(z);
+
+    if (ix >= 0 && ix < fineSize - 1 && iz >= 0 && iz < fineSize - 1) {
+        float fx = x - ix;
+        float fz = z - iz;
+
+        float h00 = heightMap[iz][ix];
+        float h10 = heightMap[iz][ix + 1];
+        float h01 = heightMap[iz + 1][ix];
+        float h11 = heightMap[iz + 1][ix + 1];
+
+        float hx0 = h00 + fx * (h10 - h00);
+        float hx1 = h01 + fx * (h11 - h01);
+
+        return hx0 + fz * (hx1 - hx0);
+    }
+
+    return 0.0f; // outside bounds
+}
+
+// renders the heightMap as a textured mesh using triangle strips
+void drawTerrain(GLuint shaderProgram, int terrainVAO, GLuint texture) {
+    glUseProgram(shaderProgram);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindVertexArray(terrainVAO);
+
+    for (int z = 0; z < fineSize - 1; ++z) {
+        int verticesPerStrip = fineSize * 2;
+        glDrawArrays(GL_TRIANGLE_STRIP, z * verticesPerStrip, verticesPerStrip);
+    }
+
+    glBindVertexArray(0);
+}
+
+GLuint loadTexture(const char* path) {
+    int width, height, nrChannels;
+    unsigned char* data = stbi_load(path, &width, &height, &nrChannels, 0);
+    if (!data) {
+        std::cerr << "Error::Texture could not load texture file: " << path << std::endl;
+        return 0;
+    }
+
+    GLuint textureId = 0;
+    glGenTextures(1, &textureId);
+    if (textureId == 0) {
+        std::cerr << "Error::Failed to generate texture ID\n";
+        stbi_image_free(data);
+        return 0;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, textureId);
+
+    GLenum format = GL_RGB;
+    if (nrChannels == 1) format = GL_RED;
+    else if (nrChannels == 3) format = GL_RGB;
+    else if (nrChannels == 4) format = GL_RGBA;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+
+    // Set texture parameters (wrap & filter)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_image_free(data);
+
+    return textureId;
+}
 
 std::string loadShader(const char* filepath) {
     std::ifstream file(filepath);
